@@ -1,15 +1,22 @@
-# backend
+# Backend
 
-To install dependencies:
+This project requires [Bun](https://bun.com/) and [MAMP](https://www.mamp.info/) to be installed on your machine before cloning and running the repository.
+
+## Setup
+
+Install dependencies:
 
 ```bash
 bun install
 ```
 
-To run:
+Run the server
 
 ```bash
-bun run index.ts
+bun --watch server.js
 ```
 
-This project was created using `bun init` in bun v1.3.0. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+#About
+
+This project is a backend practice assignment for college coursework.
+It uses the Bun runtime and a MySQL database running via MAMP (default port: 8889).
