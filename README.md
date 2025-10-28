@@ -13,7 +13,11 @@ bun install
 Run the server
 
 ```bash
+<<<<<<< HEAD
 bun --watch server.js
+=======
+bun --watch index.js
+>>>>>>> 4baf4f5b0ce7da5261d75cfcc009693192eaa3ea
 ```
 
 #About
