@@ -1,21 +1,29 @@
 // server.js
-import "dotenv/config.js"; // โหลด .env ตั้งแต่บรรทัดแรก
+import "dotenv/config.js"; // load .env asap
 import express from "express";
 import cors from "cors";
 import mysql from "mysql2/promise";
 import bcrypt from "bcrypt";
 
 // --------------------------------------------------
-// 1) CONFIG
+// 1) CONFIG / SERVER TUNING
 // --------------------------------------------------
 
 const app = express();
 
-// middleware พื้นฐาน
-app.use(cors());
-app.use(express.json());
+// basic hardening / micro perf
+app.disable("x-powered-by"); // don't leak framework
+app.set("etag", "strong"); // allow client-side caching on GETs
 
-// ใช้ connection pool (ดีกว่าเปิด-ปิด connection ตลอด)
+// middleware
+app.use(cors({ origin: true })); // allow all origins by default
+app.use(express.json({ limit: "64kb" })); // lightweight body limit
+
+// tune pool + bcrypt from env
+const POOL_SIZE = parseInt(process.env.DB_POOL_SIZE || "20", 10); // more concurrency
+const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS || "10", 10); // hash cost
+
+// create mysql pool (keepAlive improves latency on repeat reqs)
 const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -23,38 +31,39 @@ const db = mysql.createPool({
   database: process.env.DB_NAME,
   port: process.env.DB_PORT ?? 3306,
   waitForConnections: true,
-  connectionLimit: 10,
+  connectionLimit: POOL_SIZE,
   queueLimit: 0,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 0,
 });
 
-// log env แบบไม่ leak password
+// log env summary (no secrets)
 console.log("[DB CONFIG]", {
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   db: process.env.DB_NAME,
   port: process.env.DB_PORT ?? 3306,
+  poolSize: POOL_SIZE,
+  bcryptRounds: BCRYPT_ROUNDS,
 });
 
 // --------------------------------------------------
 // 2) SMALL UTILS
 // --------------------------------------------------
 
-// generic db query wrapper (ให้โค้ดอ่านง่ายขึ้น)
+// runQuery() uses prepared statements via .execute() when params exist
+// this lets MySQL cache the statement and reduces parse/plan cost
 async function runQuery(sql, params = []) {
-  const [rows] = await db.query(sql, params);
-  return rows;
+  if (params.length === 0) {
+    const [rows] = await db.query(sql);
+    return rows;
+  } else {
+    const [rows] = await db.execute(sql, params);
+    return rows;
+  }
 }
 
-// อัพเดต timestamp updated_at เป็น CURRENT_TIMESTAMP ให้ user คนเดียว
-// ใช้เวลาแก้ไขข้อมูล user เสร็จ เพื่อ keep audit log สดใหม่
-async function updated_now(userId) {
-  await runQuery(
-    "UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-    [userId]
-  );
-}
-
-// ส่ง error format เดียวทั้งระบบ
+// send error with consistent shape
 function sendDbError(res, err, httpCode = 500) {
   console.error("[DB ERROR]", err);
   return res.status(httpCode).json({
@@ -62,6 +71,16 @@ function sendDbError(res, err, httpCode = 500) {
     message: err?.message ?? "Database error",
     code: err?.code ?? null,
   });
+}
+
+// tiny helper to validate required fields quickly
+function requireFields(obj, keys) {
+  for (const k of keys) {
+    if (obj[k] === undefined || obj[k] === null || obj[k] === "") {
+      return k;
+    }
+  }
+  return null;
 }
 
 // --------------------------------------------------
@@ -81,10 +100,13 @@ app.get("/ping", async (req, res) => {
   }
 });
 
-// GET /users - ดึง user ทั้งหมด
+// GET /users - list all users (select only needed columns to reduce payload)
 app.get("/users", async (req, res) => {
   try {
-    const rows = await runQuery("SELECT * FROM users");
+    const rows = await runQuery(
+      "SELECT id, firstname, fullname, lastname, username, status, created_at, updated_at FROM users"
+    );
+
     res.json({
       status: "ok",
       count: rows.length,
@@ -95,11 +117,15 @@ app.get("/users", async (req, res) => {
   }
 });
 
-// GET /users/:id - ดึง user ตาม id
+// GET /users/:id - get single user
 app.get("/users/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const rows = await runQuery("SELECT * FROM users WHERE id = ?", [id]);
+
+    const rows = await runQuery(
+      "SELECT id, firstname, fullname, lastname, username, status, created_at, updated_at FROM users WHERE id = ?",
+      [id]
+    );
 
     if (rows.length === 0) {
       return res
@@ -116,8 +142,7 @@ app.get("/users/:id", async (req, res) => {
   }
 });
 
-// POST /users - เพิ่ม user ใหม่
-// NOTE: ถ้าอยากเก็บรหัสผ่านแบบ hash -> ส่ง body.password มา แล้ว hash ก่อน insert
+// POST /users - create new user
 app.post("/users", async (req, res) => {
   try {
     const {
@@ -129,32 +154,36 @@ app.post("/users", async (req, res) => {
       status = "active",
     } = req.body;
 
-    if (!firstname || !fullname || !lastname || !username || !password) {
+    // fast validation
+    const missing = requireFields(req.body, [
+      "firstname",
+      "fullname",
+      "lastname",
+      "username",
+      "password",
+    ]);
+    if (missing) {
       return res.status(400).json({
         status: "bad_request",
-        message: "Missing required fields",
+        message: `Missing required field: ${missing}`,
       });
     }
 
-    // hash password ก่อนเก็บ
-    const hashed = await bcrypt.hash(password, 10);
+    // hash password (bcrypt is CPU heavy, we allow tuning rounds via env)
+    const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
-    const result = await db.query(
+    // single round-trip insert (created_at/updated_at handled by DB defaults)
+    const [result] = await db.execute(
       `
-      INSERT INTO users (firstname, fullname, lastname, username, password, status)
-      VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO users (firstname, fullname, lastname, username, password, status)
+        VALUES (?, ?, ?, ?, ?, ?)
       `,
       [firstname, fullname, lastname, username, hashed, status]
     );
 
-    const insertId = result[0]?.insertId;
-
-    // sync timestamp just in case (not really needed here because created_at already set)
-    await updated_now(insertId);
-
     res.status(201).json({
       status: "ok",
-      id: insertId,
+      id: result.insertId,
       firstname,
       fullname,
       lastname,
@@ -166,7 +195,7 @@ app.post("/users", async (req, res) => {
   }
 });
 
-// PUT /users/:id - อัปเดตข้อมูล user
+// PUT /users/:id - update user
 app.put("/users/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -179,7 +208,7 @@ app.put("/users/:id", async (req, res) => {
       status,
     } = req.body;
 
-    // สร้าง dynamic update query แบบไม่อัพ field ที่ไม่ได้ส่งมา
+    // dynamic fields
     const fields = [];
     const params = [];
 
@@ -204,12 +233,11 @@ app.put("/users/:id", async (req, res) => {
       params.push(status);
     }
     if (password !== undefined) {
-      const hashed = await bcrypt.hash(password, 10);
+      const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);
       fields.push("password = ?");
       params.push(hashed);
     }
 
-    // ถ้าไม่มี field ให้แก้เลย -> 400
     if (fields.length === 0) {
       return res.status(400).json({
         status: "bad_request",
@@ -217,8 +245,10 @@ app.put("/users/:id", async (req, res) => {
       });
     }
 
-    // run update
-    const [result] = await db.query(
+    // always bump updated_at in same query (no second trip)
+    fields.push("updated_at = CURRENT_TIMESTAMP");
+
+    const [result] = await db.execute(
       `UPDATE users SET ${fields.join(", ")} WHERE id = ?`,
       [...params, id]
     );
@@ -229,9 +259,6 @@ app.put("/users/:id", async (req, res) => {
         .json({ status: "not_found", message: "User not found" });
     }
 
-    // update timestamp updated_at
-    await updated_now(id);
-
     res.json({
       status: "ok",
       message: "User updated successfully",
@@ -241,12 +268,12 @@ app.put("/users/:id", async (req, res) => {
   }
 });
 
-// DELETE /users/:id - ลบ user
+// DELETE /users/:id - delete user
 app.delete("/users/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    const [result] = await db.query("DELETE FROM users WHERE id = ?", [id]);
+    const [result] = await db.execute("DELETE FROM users WHERE id = ?", [id]);
 
     if (result.affectedRows === 0) {
       return res
@@ -263,13 +290,13 @@ app.delete("/users/:id", async (req, res) => {
   }
 });
 
-// simple public route (CORS test / sanity check)
+// CORS sanity check
 app.get("/api/data", (req, res) => {
   res.json({ message: "Hello, CORS!" });
 });
 
 // --------------------------------------------------
-// 4) GLOBAL FALLBACK ERROR HANDLER (safety net)
+// 4) GLOBAL FALLBACK ERROR HANDLER
 // --------------------------------------------------
 app.use((err, req, res, next) => {
   console.error("[UNCAUGHT ERROR]", err);
@@ -283,6 +310,10 @@ app.use((err, req, res, next) => {
 // 5) START SERVER
 // --------------------------------------------------
 const PORT = process.env.PORT || 3000;
+
+// NOTE: for even higher concurrency on CPU-heavy stuff (bcrypt),
+// run multiple Node workers (PM2 cluster / node --cluster) OR
+// increase libuv threadpool: UV_THREADPOOL_SIZE=16
 app.listen(PORT, () => {
   console.log(`✅ Server is running on port ${PORT}`);
 });
