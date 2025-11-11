@@ -1,13 +1,18 @@
 {
   "name": "backend",
-  "module": "index.ts",
-  "type": "module",
+  "version": "1.0.0",
+  "description": "Express + MySQL API running on Bun with separate local/production envs.",
   "private": true,
-  "devDependencies": {
-    "@types/bun": "latest"
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "dev": "NODE_ENV=development DOTENV_CONFIG_PATH=.env.local bun --watch server.js",
+    "start": "NODE_ENV=production DOTENV_CONFIG_PATH=.env.production bun server.js",
+    "typecheck": "tsc --noEmit"
   },
-  "peerDependencies": {
-    "typescript": "^5"
+  "engines": {
+    "bun": ">=1.0.0",
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
@@ -16,5 +21,9 @@
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.15.2"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
   }
 }
