@@ -1,9 +1,13 @@
 // server.js
-import "dotenv/config.js"; // load .env asap
+import "dotenv/config.js";
 import express from "express";
 import cors from "cors";
 import mysql from "mysql2/promise";
 import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import verifyToken from "./middleware/auth.js";
+
+const SECRET_KEY = process.env.JWT_SECRET; // ควรเก็บใน .env
 
 // --------------------------------------------------
 // 1) CONFIG / SERVER TUNING
@@ -11,24 +15,21 @@ import bcrypt from "bcrypt";
 
 const app = express();
 
-// basic hardening / micro perf
-app.disable("x-powered-by"); // don't leak framework
-app.set("etag", "strong"); // allow client-side caching on GETs
+app.disable("x-powered-by");
+app.set("etag", "strong");
 
-// middleware
-app.use(cors({ origin: true })); // allow all origins by default
-app.use(express.json({ limit: "64kb" })); // lightweight body limit
+app.use(cors({ origin: true }));
+app.use(express.json({ limit: "64kb" }));
 
-// tune pool + bcrypt from env
-const POOL_SIZE = parseInt(process.env.DB_POOL_SIZE || "20", 10); // more concurrency
-const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS || "10", 10); // hash cost
+const POOL_SIZE = parseInt(process.env.DB_POOL_SIZE || "20", 10);
+const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS || "10", 10);
+const DB_NAME = process.env.DB_NAME || "db_shop";
 
-// create mysql pool (keepAlive improves latency on repeat reqs)
 const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
-  database: process.env.DB_NAME,
+  database: DB_NAME,
   port: process.env.DB_PORT ?? 3306,
   waitForConnections: true,
   connectionLimit: POOL_SIZE,
@@ -41,7 +42,7 @@ const db = mysql.createPool({
 console.log("[DB CONFIG]", {
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
-  db: process.env.DB_NAME,
+  db: DB_NAME,
   port: process.env.DB_PORT ?? 3306,
   poolSize: POOL_SIZE,
   bcryptRounds: BCRYPT_ROUNDS,
@@ -51,8 +52,6 @@ console.log("[DB CONFIG]", {
 // 2) SMALL UTILS
 // --------------------------------------------------
 
-// runQuery() uses prepared statements via .execute() when params exist
-// this lets MySQL cache the statement and reduces parse/plan cost
 async function runQuery(sql, params = []) {
   if (params.length === 0) {
     const [rows] = await db.query(sql);
@@ -63,7 +62,6 @@ async function runQuery(sql, params = []) {
   }
 }
 
-// send error with consistent shape
 function sendDbError(res, err, httpCode = 500) {
   console.error("[DB ERROR]", err);
   return res.status(httpCode).json({
@@ -73,7 +71,6 @@ function sendDbError(res, err, httpCode = 500) {
   });
 }
 
-// tiny helper to validate required fields quickly
 function requireFields(obj, keys) {
   for (const k of keys) {
     if (obj[k] === undefined || obj[k] === null || obj[k] === "") {
@@ -87,7 +84,6 @@ function requireFields(obj, keys) {
 // 3) ROUTES
 // --------------------------------------------------
 
-// Health check / ping DB
 app.get("/ping", async (req, res) => {
   try {
     const rows = await runQuery("SELECT NOW() AS now");
@@ -100,11 +96,10 @@ app.get("/ping", async (req, res) => {
   }
 });
 
-// GET /users - list all users (select only needed columns to reduce payload)
-app.get("/users", async (req, res) => {
+app.get("/users", verifyToken, async (req, res) => {
   try {
     const rows = await runQuery(
-      "SELECT id, firstname, fullname, lastname, username, status, created_at, updated_at FROM users"
+      "SELECT id, firstname, fullname, lastname, username, status, created_at, updated_at FROM tbl_users"
     );
 
     res.json({
@@ -117,13 +112,12 @@ app.get("/users", async (req, res) => {
   }
 });
 
-// GET /users/:id - get single user
-app.get("/users/:id", async (req, res) => {
+app.get("/users/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
 
     const rows = await runQuery(
-      "SELECT id, firstname, fullname, lastname, username, status, created_at, updated_at FROM users WHERE id = ?",
+      "SELECT id, firstname, fullname, lastname, username, status, created_at, updated_at FROM tbl_users WHERE id = ?",
       [id]
     );
 
@@ -142,7 +136,6 @@ app.get("/users/:id", async (req, res) => {
   }
 });
 
-// POST /users - create new user
 app.post("/users", async (req, res) => {
   try {
     const {
@@ -150,11 +143,10 @@ app.post("/users", async (req, res) => {
       fullname,
       lastname,
       username,
-      password, // plaintext from body
+      password,
       status = "active",
     } = req.body;
 
-    // fast validation
     const missing = requireFields(req.body, [
       "firstname",
       "fullname",
@@ -169,13 +161,11 @@ app.post("/users", async (req, res) => {
       });
     }
 
-    // hash password (bcrypt is CPU heavy, we allow tuning rounds via env)
     const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
-    // single round-trip insert (created_at/updated_at handled by DB defaults)
     const [result] = await db.execute(
       `
-        INSERT INTO users (firstname, fullname, lastname, username, password, status)
+        INSERT INTO tbl_users (firstname, fullname, lastname, username, password, status)
         VALUES (?, ?, ?, ?, ?, ?)
       `,
       [firstname, fullname, lastname, username, hashed, status]
@@ -195,18 +185,11 @@ app.post("/users", async (req, res) => {
   }
 });
 
-// PUT /users/:id - update user
-app.put("/users/:id", async (req, res) => {
+app.put("/users/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      firstname,
-      fullname,
-      lastname,
-      username,
-      password, // optional
-      status,
-    } = req.body;
+    const { firstname, fullname, lastname, username, password, status } =
+      req.body;
 
     // dynamic fields
     const fields = [];
@@ -245,11 +228,10 @@ app.put("/users/:id", async (req, res) => {
       });
     }
 
-    // always bump updated_at in same query (no second trip)
     fields.push("updated_at = CURRENT_TIMESTAMP");
 
     const [result] = await db.execute(
-      `UPDATE users SET ${fields.join(", ")} WHERE id = ?`,
+      `UPDATE tbl_users SET ${fields.join(", ")} WHERE id = ?`,
       [...params, id]
     );
 
@@ -269,11 +251,13 @@ app.put("/users/:id", async (req, res) => {
 });
 
 // DELETE /users/:id - delete user
-app.delete("/users/:id", async (req, res) => {
+app.delete("/users/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const [result] = await db.execute("DELETE FROM users WHERE id = ?", [id]);
+    const [result] = await db.execute("DELETE FROM tbl_users WHERE id = ?", [
+      id,
+    ]);
 
     if (result.affectedRows === 0) {
       return res
@@ -290,7 +274,49 @@ app.delete("/users/:id", async (req, res) => {
   }
 });
 
-// CORS sanity check
+app.post("/login", async (req, res) => {
+  const { username, password } = req.body;
+
+  const missing = requireFields({ username, password }, [
+    "username",
+    "password",
+  ]);
+  if (missing) {
+    return res.status(400).json({
+      error: `Missing required field: ${missing}`,
+    });
+  }
+
+  try {
+    const [rows] = await db.execute(
+      "SELECT id, fullname, lastname, password FROM tbl_users WHERE username = ?",
+      [username]
+    );
+
+    if (rows.length === 0) {
+      return res.status(401).json({ error: "User not found" });
+    }
+
+    const user = rows[0];
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: "Invalid password" });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, fullname: user.fullname, lastname: user.lastname },
+      SECRET_KEY,
+      { expiresIn: "1h" }
+    );
+
+    res.json({ message: "Login successful", token });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
 app.get("/api/data", (req, res) => {
   res.json({ message: "Hello, CORS!" });
 });
@@ -310,10 +336,6 @@ app.use((err, req, res, next) => {
 // 5) START SERVER
 // --------------------------------------------------
 const PORT = process.env.PORT || 3000;
-
-// NOTE: for even higher concurrency on CPU-heavy stuff (bcrypt),
-// run multiple Node workers (PM2 cluster / node --cluster) OR
-// increase libuv threadpool: UV_THREADPOOL_SIZE=16
 app.listen(PORT, () => {
   console.log(`✅ Server is running on port ${PORT}`);
 });
