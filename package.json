@@ -4,7 +4,7 @@
   "description": "Express + MySQL API running on Bun with separate local/production envs.",
   "private": true,
   "type": "module",
-  "main": "server.js",
+  "main": "index.js",
   "scripts": {
     "dev": "NODE_ENV=development DOTENV_CONFIG_PATH=.env.local bun --watch server.js",
     "start": "NODE_ENV=production DOTENV_CONFIG_PATH=.env.production bun server.js",
