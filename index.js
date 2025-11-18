@@ -317,6 +317,11 @@ app.post("/login", async (req, res) => {
   }
 });
 
+app.post("/logout", (req, res) => {
+  localStorage.removeItem("token");
+  window.location.href = "/login";
+});
+
 app.get("/api/data", (req, res) => {
   res.json({ message: "Hello, CORS!" });
 });
