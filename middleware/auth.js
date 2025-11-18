@@ -1,7 +1,12 @@
 import jwt from "jsonwebtoken";
-import { getActiveToken } from "../tokenStore.js";
 
 const SECRET_KEY = process.env.JWT_SECRET;
+const activeTokens =
+  globalThis.__activeTokens ?? (globalThis.__activeTokens = new Map());
+
+function getActiveToken(userId) {
+  return activeTokens.get(userId);
+}
 
 export default function verifyToken(req, res, next) {
   const authHeader = req.headers["authorization"];

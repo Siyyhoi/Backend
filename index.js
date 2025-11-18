@@ -5,9 +5,18 @@ import mysql from "mysql2/promise";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import verifyToken from "./middleware/auth.js";
-import { setActiveToken, clearActiveToken } from "./tokenStore.js";
 
 const SECRET_KEY = process.env.JWT_SECRET;
+const activeTokens =
+  globalThis.__activeTokens ?? (globalThis.__activeTokens = new Map());
+
+function setActiveToken(userId, token) {
+  activeTokens.set(userId, token);
+}
+
+function clearActiveToken(userId) {
+  activeTokens.delete(userId);
+}
 
 // --------------------------------------------------
 // 1) CONFIG / SERVER TUNING
@@ -24,6 +33,7 @@ app.use(express.json({ limit: "64kb" }));
 const POOL_SIZE = parseInt(process.env.DB_POOL_SIZE || "20", 10);
 const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS || "10", 10);
 const DB_NAME = process.env.DB_NAME || "db_shop";
+const MAX_PAGE_SIZE = parseInt(process.env.MAX_PAGE_SIZE || "100", 10);
 
 const db = mysql.createPool({
   host: process.env.DB_HOST,
@@ -98,15 +108,46 @@ app.get("/ping", async (req, res) => {
 
 app.get("/users", verifyToken, async (req, res) => {
   try {
-    const rows = await runQuery(
-      "SELECT id, firstname, fullname, lastname, username, status, created_at, updated_at FROM tbl_users"
-    );
+    const limitParam = Number.parseInt(req.query.limit ?? "", 10);
+    const limit =
+      Number.isNaN(limitParam) || limitParam <= 0
+        ? null
+        : Math.min(limitParam, MAX_PAGE_SIZE);
 
-    res.json({
+    const pageParam = Number.parseInt(req.query.page ?? "", 10);
+    const page =
+      Number.isNaN(pageParam) || pageParam <= 0 ? 1 : pageParam;
+    const offset = limit !== null ? Math.max(0, (page - 1) * limit) : 0;
+
+    let sql =
+      "SELECT id, firstname, fullname, lastname, username, status, created_at, updated_at FROM tbl_users";
+    const params = [];
+    if (limit !== null) {
+      sql += " LIMIT ? OFFSET ?";
+      params.push(limit, offset);
+    }
+
+    const dataPromise = runQuery(sql, params);
+    const countPromise =
+      limit !== null
+        ? runQuery("SELECT COUNT(*) AS total FROM tbl_users")
+        : null;
+
+    const rows = await dataPromise;
+    const responseBody = {
       status: "ok",
       count: rows.length,
       data: rows,
-    });
+    };
+
+    if (countPromise) {
+      const total = await countPromise;
+      responseBody.total = total[0].total;
+      responseBody.page = page;
+      responseBody.limit = limit;
+    }
+
+    res.json(responseBody);
   } catch (err) {
     return sendDbError(res, err);
   }
@@ -289,7 +330,7 @@ app.post("/login", async (req, res) => {
 
   try {
     const [rows] = await db.execute(
-      "SELECT id, fullname, lastname, password FROM tbl_users WHERE username = ?",
+      "SELECT id, fullname, lastname, password FROM tbl_users WHERE username = ? LIMIT 1",
       [username]
     );
 
