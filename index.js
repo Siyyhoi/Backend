@@ -5,8 +5,9 @@ import mysql from "mysql2/promise";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import verifyToken from "./middleware/auth.js";
+import { setActiveToken, clearActiveToken } from "./tokenStore.js";
 
-const SECRET_KEY = process.env.JWT_SECRET; // ควรเก็บใน .env
+const SECRET_KEY = process.env.JWT_SECRET;
 
 // --------------------------------------------------
 // 1) CONFIG / SERVER TUNING
@@ -309,6 +310,8 @@ app.post("/login", async (req, res) => {
       { expiresIn: "1h" }
     );
 
+    setActiveToken(user.id, token);
+
     res.json({ message: "Login successful", token });
   } catch (err) {
     console.error(err);
@@ -316,8 +319,8 @@ app.post("/login", async (req, res) => {
   }
 });
 
-app.post("/logout", (req, res) => {
-  // Let the client clear its own storage; server just confirms logout.
+app.post("/logout", verifyToken, (req, res) => {
+  clearActiveToken(req.user.id);
   res.json({ status: "ok", message: "Logged out" });
 });
 
