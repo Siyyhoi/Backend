@@ -108,7 +108,7 @@ app.get("/ping", async (req, res) => {
 
 app.get("/", (req, res) => {
   res.send(
-    "✅ Server is running on cloud. Visit /ping to check its health status."
+    "✅ Server is running on cloud. Go to /ping to check its status."
   );
 });
 
