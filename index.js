@@ -107,9 +107,7 @@ app.get("/ping", async (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send(
-    "✅ Server is running on cloud. Go to /ping to check its status."
-  );
+  res.send("✅ Server is running on cloud. Go to /ping to check its status.");
 });
 
 app.get("/users", verifyToken, async (req, res) => {
