@@ -1,4 +1,3 @@
-// server.js
 import "dotenv/config.js";
 import express from "express";
 import cors from "cors";
@@ -318,8 +317,8 @@ app.post("/login", async (req, res) => {
 });
 
 app.post("/logout", (req, res) => {
-  localStorage.removeItem("token");
-  window.location.href = "/login";
+  // Let the client clear its own storage; server just confirms logout.
+  res.json({ status: "ok", message: "Logged out" });
 });
 
 app.get("/api/data", (req, res) => {
