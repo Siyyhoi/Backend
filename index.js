@@ -106,6 +106,12 @@ app.get("/ping", async (req, res) => {
   }
 });
 
+app.get("/", (req, res) => {
+  res.send(
+    "✅ Server is running on cloud. Visit /ping to check its health status."
+  );
+});
+
 app.get("/users", verifyToken, async (req, res) => {
   try {
     const limitParam = Number.parseInt(req.query.limit ?? "", 10);
@@ -115,8 +121,7 @@ app.get("/users", verifyToken, async (req, res) => {
         : Math.min(limitParam, MAX_PAGE_SIZE);
 
     const pageParam = Number.parseInt(req.query.page ?? "", 10);
-    const page =
-      Number.isNaN(pageParam) || pageParam <= 0 ? 1 : pageParam;
+    const page = Number.isNaN(pageParam) || pageParam <= 0 ? 1 : pageParam;
     const offset = limit !== null ? Math.max(0, (page - 1) * limit) : 0;
 
     let sql =
