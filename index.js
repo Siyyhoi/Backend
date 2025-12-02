@@ -1,10 +1,16 @@
-import "dotenv/config.js";
+import { config as loadEnv } from "dotenv";
 import express from "express";
 import cors from "cors";
 import mysql from "mysql2/promise";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import verifyToken from "./middleware/auth.js";
+
+const envPath =
+  process.env.DOTENV_CONFIG_PATH ??
+  (process.env.NODE_ENV === "production" ? ".env.production" : ".env.local");
+
+loadEnv({ path: envPath, override: false });
 
 const SECRET_KEY = process.env.JWT_SECRET;
 const activeTokens =
@@ -22,7 +28,7 @@ function clearActiveToken(userId) {
 // 1) CONFIG / SERVER TUNING
 // --------------------------------------------------
 
-const app = express();
+export const app = express();
 
 app.disable("x-powered-by");
 app.set("etag", "strong");
@@ -387,6 +393,10 @@ app.use((err, req, res, next) => {
 // 5) START SERVER
 // --------------------------------------------------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`✅ Server is running on port ${PORT}`);
-});
+if (process.env.NODE_ENV !== "test") {
+  app.listen(PORT, () => {
+    console.log(`✅ Server is running on port ${PORT}`);
+  });
+}
+
+export default app;
