@@ -22,7 +22,9 @@ export default function verifyToken(req, res, next) {
     }
     const storedToken = getActiveToken(user.id);
     if (!storedToken || storedToken !== token) {
-      return res.status(403).json({ error: "Session revoked, please login again" });
+      return res
+        .status(403)
+        .json({ error: "Session revoked, please login again" });
     }
     req.user = user;
     next();
