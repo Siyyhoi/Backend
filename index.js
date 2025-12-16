@@ -31,6 +31,19 @@ function clearActiveToken(userId) {
 
 export const app = express();
 
+import { fileURLToPath } from "url";
+import path from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Serve favicon
+app.get("/favicon.ico", (req, res) => {
+  res.sendFile(path.join(__dirname, "njz.png"), {
+    headers: { "Content-Type": "image/x-icon" },
+  });
+});
+
 // Swagger UI setup - Vercel serverless compatible using CDN
 // Generate HTML with CDN links since Vercel can't serve static files from node_modules
 app.get("/api-docs", (req, res) => {
@@ -41,6 +54,7 @@ app.get("/api-docs", (req, res) => {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BackEnd API Documentation</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
   <style>
     html { box-sizing: border-box; overflow-y: scroll; }
