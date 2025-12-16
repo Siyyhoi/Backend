@@ -1,17 +1,10 @@
-import { config as loadEnv } from "dotenv";
 import express from "express";
 import cors from "cors";
-import mysql from "mysql2/promise";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import verifyToken from "./middleware/auth.js";
 import { specs } from "./swagger.js";
-
-const envPath =
-  process.env.DOTENV_CONFIG_PATH ??
-  (process.env.NODE_ENV === "production" ? ".env.production" : ".env.local");
-
-loadEnv({ path: envPath, override: false });
+import { db, POOL_SIZE, DB_NAME } from "./config/db.js";
 
 const SECRET_KEY = process.env.JWT_SECRET;
 const activeTokens =
@@ -92,23 +85,8 @@ app.set("etag", "strong");
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: "64kb" }));
 
-const POOL_SIZE = parseInt(process.env.DB_POOL_SIZE || "20", 10);
 const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS || "10", 10);
-const DB_NAME = process.env.DB_NAME || "db_shop";
 const MAX_PAGE_SIZE = parseInt(process.env.MAX_PAGE_SIZE || "100", 10);
-
-const db = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  database: DB_NAME,
-  port: process.env.DB_PORT ?? 3306,
-  waitForConnections: true,
-  connectionLimit: POOL_SIZE,
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0,
-});
 
 // log env summary (no secrets)
 console.log("[DB CONFIG]", {
