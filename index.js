@@ -5,7 +5,7 @@ import mysql from "mysql2/promise";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import verifyToken from "./middleware/auth.js";
-import { swaggerUi, specs } from "./swagger.js";
+import { specs } from "./swagger.js";
 
 const envPath =
   process.env.DOTENV_CONFIG_PATH ??
@@ -31,19 +31,46 @@ function clearActiveToken(userId) {
 
 export const app = express();
 
-// Swagger UI setup - Vercel serverless compatible
-// Use serveWithOptions for better serverless compatibility
-const swaggerOptions = {
-  customCss: ".swagger-ui .topbar { display: none }",
-  customSiteTitle: "BackEnd API Documentation",
-  swaggerOptions: {
-    persistAuthorization: true,
-  },
-};
-
-// For Vercel: use setup with serve inline
-app.get("/api-docs", swaggerUi.serve, swaggerUi.setup(specs, swaggerOptions));
-app.use("/api-docs/", swaggerUi.serve, swaggerUi.setup(specs, swaggerOptions));
+// Swagger UI setup - Vercel serverless compatible using CDN
+// Generate HTML with CDN links since Vercel can't serve static files from node_modules
+app.get("/api-docs", (req, res) => {
+  const swaggerHtml = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BackEnd API Documentation</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+  <style>
+    html { box-sizing: border-box; overflow-y: scroll; }
+    *, *:before, *:after { box-sizing: inherit; }
+    body { margin: 0; background: #fafafa; }
+    .swagger-ui .topbar { display: none; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+  <script>
+    window.onload = function() {
+      SwaggerUIBundle({
+        spec: ${JSON.stringify(specs)},
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        persistAuthorization: true,
+        presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+        plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+        layout: "StandaloneLayout"
+      });
+    };
+  </script>
+</body>
+</html>`;
+  res.setHeader("Content-Type", "text/html");
+  res.send(swaggerHtml);
+});
 
 app.disable("x-powered-by");
 app.set("etag", "strong");
