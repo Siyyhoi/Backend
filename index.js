@@ -5,6 +5,7 @@ import mysql from "mysql2/promise";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import verifyToken from "./middleware/auth.js";
+import { swaggerUi, specs } from "./swagger.js";
 
 const envPath =
   process.env.DOTENV_CONFIG_PATH ??
@@ -29,6 +30,7 @@ function clearActiveToken(userId) {
 // --------------------------------------------------
 
 export const app = express();
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(specs));
 
 app.disable("x-powered-by");
 app.set("etag", "strong");
@@ -100,6 +102,31 @@ function requireFields(obj, keys) {
 // 3) ROUTES
 // --------------------------------------------------
 
+/**
+ * @openapi
+ * /ping:
+ *   get:
+ *     tags:
+ *       - Health
+ *     summary: Test DB connection
+ *     description: Returns the current database server time to verify connectivity
+ *     responses:
+ *       200:
+ *         description: Database connection successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: ok
+ *                 time:
+ *                   type: string
+ *                   format: date-time
+ *       500:
+ *         description: Database error
+ */
 app.get("/ping", async (req, res) => {
   try {
     const rows = await runQuery("SELECT NOW() AS now");
@@ -112,10 +139,79 @@ app.get("/ping", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /:
+ *   get:
+ *     tags:
+ *       - Health
+ *     summary: Root endpoint
+ *     description: Returns a simple message to confirm server is running
+ *     responses:
+ *       200:
+ *         description: Server is running
+ *         content:
+ *           text/plain:
+ *             schema:
+ *               type: string
+ *               example: "✅ Server is running on cloud. Go to /ping to check its status."
+ */
 app.get("/", (req, res) => {
   res.send("✅ Server is running on cloud. Go to /ping to check its status.");
 });
 
+/**
+ * @openapi
+ * /users:
+ *   get:
+ *     tags:
+ *       - Users
+ *     summary: Get all users
+ *     description: Retrieve a paginated list of all users
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *         description: Number of users per page
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *         description: Page number
+ *     responses:
+ *       200:
+ *         description: List of users
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: ok
+ *                 count:
+ *                   type: integer
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/User'
+ *                 total:
+ *                   type: integer
+ *                 page:
+ *                   type: integer
+ *                 limit:
+ *                   type: integer
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Database error
+ */
 app.get("/users", verifyToken, async (req, res) => {
   try {
     const limitParam = Number.parseInt(req.query.limit ?? "", 10);
@@ -162,6 +258,43 @@ app.get("/users", verifyToken, async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /users/{id}:
+ *   get:
+ *     tags:
+ *       - Users
+ *     summary: Get user by ID
+ *     description: Retrieve a single user by their ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: User ID
+ *     responses:
+ *       200:
+ *         description: User found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: ok
+ *                 data:
+ *                   $ref: '#/components/schemas/User'
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Database error
+ */
 app.get("/users/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -186,6 +319,49 @@ app.get("/users/:id", verifyToken, async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /users:
+ *   post:
+ *     tags:
+ *       - Users
+ *     summary: Create a new user
+ *     description: Register a new user account
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UserInput'
+ *     responses:
+ *       201:
+ *         description: User created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: ok
+ *                 id:
+ *                   type: integer
+ *                 firstname:
+ *                   type: string
+ *                 fullname:
+ *                   type: string
+ *                 lastname:
+ *                   type: string
+ *                 username:
+ *                   type: string
+ *                 userStatus:
+ *                   type: string
+ *                   description: User account status (e.g., active, inactive)
+ *       400:
+ *         description: Bad request - missing required fields
+ *       500:
+ *         description: Database error
+ */
 app.post("/users", async (req, res) => {
   try {
     const {
@@ -235,6 +411,65 @@ app.post("/users", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /users/{id}:
+ *   put:
+ *     tags:
+ *       - Users
+ *     summary: Update user
+ *     description: Update an existing user's information
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: User ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               firstname:
+ *                 type: string
+ *               fullname:
+ *                 type: string
+ *               lastname:
+ *                 type: string
+ *               username:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: User updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: ok
+ *                 message:
+ *                   type: string
+ *                   example: User updated successfully
+ *       400:
+ *         description: No fields to update
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Database error
+ */
 app.put("/users/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -300,7 +535,44 @@ app.put("/users/:id", verifyToken, async (req, res) => {
   }
 });
 
-// DELETE /users/:id - delete user
+/**
+ * @openapi
+ * /users/{id}:
+ *   delete:
+ *     tags:
+ *       - Users
+ *     summary: Delete user
+ *     description: Delete a user by their ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: User ID
+ *     responses:
+ *       200:
+ *         description: User deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: ok
+ *                 message:
+ *                   type: string
+ *                   example: User deleted successfully
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Database error
+ */
 app.delete("/users/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -324,6 +596,41 @@ app.delete("/users/:id", verifyToken, async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /login:
+ *   post:
+ *     tags:
+ *       - Authentication
+ *     summary: User login
+ *     description: Authenticate user and receive a JWT token
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/LoginInput'
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Login successful
+ *                 token:
+ *                   type: string
+ *                   description: JWT token for authentication
+ *       400:
+ *         description: Missing required fields
+ *       401:
+ *         description: Invalid credentials
+ *       500:
+ *         description: Login failed
+ */
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
 
@@ -369,11 +676,58 @@ app.post("/login", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /logout:
+ *   post:
+ *     tags:
+ *       - Authentication
+ *     summary: User logout
+ *     description: Invalidate the current user's session
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Logged out successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: ok
+ *                 message:
+ *                   type: string
+ *                   example: Logged out
+ *       401:
+ *         description: Unauthorized
+ */
 app.post("/logout", verifyToken, (req, res) => {
   clearActiveToken(req.user.id);
   res.json({ status: "ok", message: "Logged out" });
 });
 
+/**
+ * @openapi
+ * /api/data:
+ *   get:
+ *     tags:
+ *       - Misc
+ *     summary: Test CORS endpoint
+ *     description: Simple endpoint to test CORS configuration
+ *     responses:
+ *       200:
+ *         description: CORS test successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Hello, CORS!
+ */
 app.get("/api/data", (req, res) => {
   res.json({ message: "Hello, CORS!" });
 });
