@@ -31,15 +31,19 @@ function clearActiveToken(userId) {
 
 export const app = express();
 
-// Swagger UI setup - explicit routes for Vercel serverless compatibility
-app.use("/api-docs", swaggerUi.serve);
-app.get(
-  "/api-docs",
-  swaggerUi.setup(specs, {
-    customCss: ".swagger-ui .topbar { display: none }",
-    customSiteTitle: "BackEnd API Documentation",
-  })
-);
+// Swagger UI setup - Vercel serverless compatible
+// Use serveWithOptions for better serverless compatibility
+const swaggerOptions = {
+  customCss: ".swagger-ui .topbar { display: none }",
+  customSiteTitle: "BackEnd API Documentation",
+  swaggerOptions: {
+    persistAuthorization: true,
+  },
+};
+
+// For Vercel: use setup with serve inline
+app.get("/api-docs", swaggerUi.serve, swaggerUi.setup(specs, swaggerOptions));
+app.use("/api-docs/", swaggerUi.serve, swaggerUi.setup(specs, swaggerOptions));
 
 app.disable("x-powered-by");
 app.set("etag", "strong");
