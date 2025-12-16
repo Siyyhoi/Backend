@@ -1,5 +1,10 @@
 import swaggerJsdoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const options = {
   definition: {
@@ -33,7 +38,7 @@ Most endpoints require JWT authentication. To authenticate:
       `,
       contact: {
         name: "API Support",
-        email: "support@example.com",
+        email: "taweesaknumma@gmail.com",
       },
       license: {
         name: "MIT",
@@ -42,7 +47,7 @@ Most endpoints require JWT authentication. To authenticate:
     },
     externalDocs: {
       description: "📖 Learn more about this API",
-      url: "https://github.com/your-repo",
+      url: "https://github.com/VacTuzX-dot/013-backend",
     },
     servers: [
       {
@@ -295,7 +300,7 @@ Most endpoints require JWT authentication. To authenticate:
       },
     },
   },
-  apis: ["./index.js"],
+  apis: [join(__dirname, "index.js")],
 };
 
 const specs = swaggerJsdoc(options);
