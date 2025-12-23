@@ -1,32 +1,29 @@
 import jwt from "jsonwebtoken";
 
-const SECRET_KEY = process.env.JWT_SECRET;
-const activeTokens =
-  globalThis.__activeTokens ?? (globalThis.__activeTokens = new Map());
-
-function getActiveToken(userId) {
-  return activeTokens.get(userId);
-}
-
-export default function verifyToken(req, res, next) {
+const verifyToken = (req, res, next) => {
+  // 1. ดึง Token จาก Header
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
 
+  // 2. ถ้าไม่มี Token ส่งมาเลย
   if (!token) {
-    return res.status(401).json({ error: "No token provided" });
+    return res.status(401).json({ error: "No token provided, authorization denied" });
   }
 
-  jwt.verify(token, SECRET_KEY, (err, user) => {
+  // 3. ตรวจสอบ Token (ใช้ process.env.JWT_SECRET ตรงๆ เพื่อความชัวร์)
+  // ถ้าใน .env มึงตั้งชื่ออื่น ต้องเปลี่ยนตรงนี้ให้ตรงกัน
+  const secret = process.env.JWT_SECRET;
+
+  jwt.verify(token, secret, (err, decoded) => {
     if (err) {
+      console.log("❌ JWT Verification Failed:", err.message); // ดูใน Terminal ว่ามันฟ้องอะไร
       return res.status(403).json({ error: "Invalid or expired token" });
     }
-    const storedToken = getActiveToken(user.id);
-    if (!storedToken || storedToken !== token) {
-      return res
-        .status(403)
-        .json({ error: "Session revoked, please login again" });
-    }
-    req.user = user;
+
+    // 4. ถ้าผ่าน เก็บข้อมูล user ไว้ใน request
+    req.user = decoded;
     next();
   });
-}
+};
+
+export default verifyToken;

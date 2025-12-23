@@ -1,13 +1,26 @@
+import dotenv from "dotenv";
+// 1. ต้องโหลด dotenv ก่อนเพื่อน เพื่อให้ process.env มีค่าใช้งานได้ในทุกไฟล์ที่ import มาหลังจากนี้
+dotenv.config(); 
+
 import express from "express";
 import cors from "cors";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { fileURLToPath } from "url";
+import path from "path";
+
+// 2. Import ไฟล์อื่นๆ หลังจากโหลด Config แล้ว
 import verifyToken from "./middleware/auth.js";
 import { specs } from "./swagger.js";
 import { db, POOL_SIZE, DB_NAME } from "./config/db.js";
 import usersRouter from "./routes/users.js";
 
+// 3. ตรวจสอบ Secret Key ทันที ถ้าไม่มีให้เตือนใน Terminal
 const SECRET_KEY = process.env.JWT_SECRET;
+if (!SECRET_KEY) {
+  console.error("❌ ERROR: JWT_SECRET is not defined in .env file!");
+}
+
 const activeTokens =
   globalThis.__activeTokens ?? (globalThis.__activeTokens = new Map());
 
@@ -25,9 +38,6 @@ function clearActiveToken(userId) {
 
 export const app = express();
 
-import { fileURLToPath } from "url";
-import path from "path";
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -38,8 +48,7 @@ app.get("/favicon.ico", (req, res) => {
   });
 });
 
-// Swagger UI setup - Vercel serverless compatible using CDN
-// Generate HTML with CDN links since Vercel can't serve static files from node_modules
+// Swagger UI setup
 app.get("/api-docs", (req, res) => {
   const swaggerHtml = `
 <!DOCTYPE html>
@@ -87,16 +96,13 @@ app.use(cors({ origin: true }));
 app.use(express.json({ limit: "64kb" }));
 
 const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS || "10", 10);
-const MAX_PAGE_SIZE = parseInt(process.env.MAX_PAGE_SIZE || "100", 10);
 
-// log env summary (no secrets)
-console.log("[DB CONFIG]", {
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  db: DB_NAME,
-  port: process.env.DB_PORT ?? 3306,
-  poolSize: POOL_SIZE,
-  bcryptRounds: BCRYPT_ROUNDS,
+// log env summary เพื่อให้คุณเช็คความถูกต้องใน Terminal
+console.log("[SYSTEM CHECK]", {
+  host: process.env.DB_HOST || "MISSING",
+  user: process.env.DB_USER || "MISSING",
+  database: DB_NAME,
+  jwt_secret_status: SECRET_KEY ? "✅ LOADED" : "❌ MISSING",
 });
 
 // --------------------------------------------------
@@ -135,113 +141,29 @@ function requireFields(obj, keys) {
 // 3) ROUTES
 // --------------------------------------------------
 
-/**
- * @openapi
- * /ping:
- *   get:
- *     tags:
- *       - Health
- *     summary: Test DB connection
- *     description: Returns the current database server time to verify connectivity
- *     responses:
- *       200:
- *         description: Database connection successful
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: ok
- *                 time:
- *                   type: string
- *                   format: date-time
- *       500:
- *         description: Database error
- */
 app.get("/ping", async (req, res) => {
   try {
     const rows = await runQuery("SELECT NOW() AS now");
-    res.json({
-      status: "ok",
-      time: rows[0].now,
-    });
+    res.json({ status: "ok", time: rows[0].now });
   } catch (err) {
     return sendDbError(res, err);
   }
 });
 
-/**
- * @openapi
- * /:
- *   get:
- *     tags:
- *       - Health
- *     summary: Root endpoint
- *     description: Returns a simple message to confirm server is running
- *     responses:
- *       200:
- *         description: Server is running
- *         content:
- *           text/plain:
- *             schema:
- *               type: string
- *               example: "✅ Server is running on cloud. Go to /ping to check its status."
- */
 app.get("/", (req, res) => {
-  res.send("✅ Server is running on cloud. Go to /ping to check its status.");
+  res.send("✅ Server is running. Go to /api-docs for documentation.");
 });
 
 // Users routes
 app.use("/users", usersRouter);
 
-/**
- * @openapi
- * /login:
- *   post:
- *     tags:
- *       - Authentication
- *     summary: User login
- *     description: Authenticate user and receive a JWT token
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/LoginInput'
- *     responses:
- *       200:
- *         description: Login successful
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: Login successful
- *                 token:
- *                   type: string
- *                   description: JWT token for authentication
- *       400:
- *         description: Missing required fields
- *       401:
- *         description: Invalid credentials
- *       500:
- *         description: Login failed
- */
+// Login Route
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
 
-  const missing = requireFields({ username, password }, [
-    "username",
-    "password",
-  ]);
+  const missing = requireFields({ username, password }, ["username", "password"]);
   if (missing) {
-    return res.status(400).json({
-      error: `Missing required field: ${missing}`,
-    });
+    return res.status(400).json({ error: `Missing required field: ${missing}` });
   }
 
   try {
@@ -255,20 +177,19 @@ app.post("/login", async (req, res) => {
     }
 
     const user = rows[0];
-
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ error: "Invalid password" });
     }
 
+    // สร้าง Token โดยดึงค่าจาก process.env โดยตรงเพื่อความชัวร์
     const token = jwt.sign(
       { id: user.id, fullname: user.fullname, lastname: user.lastname },
-      SECRET_KEY,
+      process.env.JWT_SECRET, 
       { expiresIn: "1h" }
     );
 
     setActiveToken(user.id, token);
-
     res.json({ message: "Login successful", token });
   } catch (err) {
     console.error(err);
@@ -276,58 +197,11 @@ app.post("/login", async (req, res) => {
   }
 });
 
-/**
- * @openapi
- * /logout:
- *   post:
- *     tags:
- *       - Authentication
- *     summary: User logout
- *     description: Invalidate the current user's session
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Logged out successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: ok
- *                 message:
- *                   type: string
- *                   example: Logged out
- *       401:
- *         description: Unauthorized
- */
 app.post("/logout", verifyToken, (req, res) => {
   clearActiveToken(req.user.id);
   res.json({ status: "ok", message: "Logged out" });
 });
 
-/**
- * @openapi
- * /api/data:
- *   get:
- *     tags:
- *       - Misc
- *     summary: Test CORS endpoint
- *     description: Simple endpoint to test CORS configuration
- *     responses:
- *       200:
- *         description: CORS test successful
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: Hello, CORS!
- */
 app.get("/api/data", (req, res) => {
   res.json({ message: "Hello, CORS!" });
 });
@@ -337,10 +211,7 @@ app.get("/api/data", (req, res) => {
 // --------------------------------------------------
 app.use((err, req, res, next) => {
   console.error("[UNCAUGHT ERROR]", err);
-  res.status(500).json({
-    status: "error",
-    message: "Internal server error",
-  });
+  res.status(500).json({ status: "error", message: "Internal server error" });
 });
 
 // --------------------------------------------------

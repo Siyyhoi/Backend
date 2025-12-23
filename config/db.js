@@ -1,11 +1,7 @@
 import mysql from "mysql2/promise";
 import { config as loadEnv } from "dotenv";
 
-const envPath =
-  process.env.DOTENV_CONFIG_PATH ??
-  (process.env.NODE_ENV === "production" ? ".env.production" : ".env.local");
-
-loadEnv({ path: envPath, override: false });
+loadEnv({ path: ".env", override: true }); 
 
 const POOL_SIZE = parseInt(process.env.DB_POOL_SIZE || "20", 10);
 const DB_NAME = process.env.DB_NAME || "db_shop";
