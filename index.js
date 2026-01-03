@@ -13,7 +13,7 @@ import path from "path";
 import verifyToken from "./middleware/auth.js";
 import { specs } from "./swagger.js";
 import { db, POOL_SIZE, DB_NAME } from "./config/db.js";
-import usersRouter from "./routes/users.js";
+import usersRouter from "./api/users.js";
 
 // 3. ตรวจสอบ Secret Key ทันที ถ้าไม่มีให้เตือนใน Terminal
 const SECRET_KEY = process.env.JWT_SECRET;
@@ -43,7 +43,7 @@ const __dirname = path.dirname(__filename);
 
 // Serve favicon
 app.get("/favicon.ico", (req, res) => {
-  res.sendFile(path.join(__dirname, "njz.png"), {
+  res.sendFile(path.join(__dirname, "1.png"), {
     headers: { "Content-Type": "image/x-icon" },
   });
 });
@@ -141,24 +141,15 @@ function requireFields(obj, keys) {
 // 3) ROUTES
 // --------------------------------------------------
 
-app.get("/ping", async (req, res) => {
-  try {
-    const rows = await runQuery("SELECT NOW() AS now");
-    res.json({ status: "ok", time: rows[0].now });
-  } catch (err) {
-    return sendDbError(res, err);
-  }
-});
-
 app.get("/", (req, res) => {
   res.send("✅ Server is running. Go to /api-docs for documentation.");
 });
 
 // Users routes
-app.use("/users", usersRouter);
+app.use("/api/users", usersRouter);
 
 // Login Route
-app.post("/login", async (req, res) => {
+app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
 
   const missing = requireFields({ username, password }, ["username", "password"]);
@@ -197,13 +188,9 @@ app.post("/login", async (req, res) => {
   }
 });
 
-app.post("/logout", verifyToken, (req, res) => {
+app.post("/api/logout", verifyToken, (req, res) => {
   clearActiveToken(req.user.id);
   res.json({ status: "ok", message: "Logged out" });
-});
-
-app.get("/api/data", (req, res) => {
-  res.json({ message: "Hello, CORS!" });
 });
 
 // --------------------------------------------------

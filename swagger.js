@@ -21,18 +21,19 @@ Most endpoints require JWT authentication. To authenticate:
 ## 📚 Quick Start
 | Action | Endpoint | Auth Required |
 |--------|----------|---------------|
-| Health Check | \`GET /ping\` | ❌ |
-| Login | \`POST /login\` | ❌ |
-| Register | \`POST /users\` | ❌ |
-| List Users | \`GET /users\` | ✅ |
-| Update User | \`PUT /users/:id\` | ✅ |
-| Delete User | \`DELETE /users/:id\` | ✅ |
+| Login | \`POST /api/login\` | ❌ |
+| Register | \`POST /api/users\` | ❌ |
+| Logout | \`POST /api/logout\` | ✅ |
+| List Users | \`GET /api/users\` | ✅ |
+| Get User | \`GET /api/users/:id\` | ✅ |
+| Update User | \`PUT /api/users/:id\` | ✅ |
+| Delete User | \`DELETE /api/users/:id\` | ✅ |
 
 ---
     `,
     contact: {
       name: "API Support",
-      email: "taweesaknumma@gmail.com",
+      email: "siyyhoi@gmail.com",
     },
     license: {
       name: "MIT",
@@ -41,7 +42,7 @@ Most endpoints require JWT authentication. To authenticate:
   },
   externalDocs: {
     description: "📖 Learn more about this API",
-    url: "https://github.com/VacTuzX-dot/013-backend",
+    url: "",
   },
   servers: [
     {
@@ -49,16 +50,11 @@ Most endpoints require JWT authentication. To authenticate:
       description: "🖥️ Development Server",
     },
     {
-      url: "https://013-backend.vercel.app",
+      url: "",
       description: "🌐 Production Server",
     },
   ],
   tags: [
-    {
-      name: "Health",
-      description:
-        "🏥 **Health Check Endpoints** — Monitor server and database status",
-    },
     {
       name: "Authentication",
       description:
@@ -74,53 +70,7 @@ Most endpoints require JWT authentication. To authenticate:
     },
   ],
   paths: {
-    "/": {
-      get: {
-        tags: ["Health"],
-        summary: "Root endpoint",
-        description: "Returns a simple message to confirm server is running",
-        responses: {
-          200: {
-            description: "Server is running",
-            content: {
-              "text/plain": {
-                schema: {
-                  type: "string",
-                  example:
-                    "✅ Server is running on cloud. Go to /ping to check its status.",
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-    "/ping": {
-      get: {
-        tags: ["Health"],
-        summary: "Test DB connection",
-        description:
-          "Returns the current database server time to verify connectivity",
-        responses: {
-          200: {
-            description: "Database connection successful",
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    status: { type: "string", example: "ok" },
-                    time: { type: "string", format: "date-time" },
-                  },
-                },
-              },
-            },
-          },
-          500: { description: "Database error" },
-        },
-      },
-    },
-    "/users": {
+    "/api/users": {
       get: {
         tags: ["Users"],
         summary: "Get all users",
@@ -207,7 +157,7 @@ Most endpoints require JWT authentication. To authenticate:
         },
       },
     },
-    "/users/{id}": {
+    "/api/users/{id}": {
       get: {
         tags: ["Users"],
         summary: "Get user by ID",
@@ -336,7 +286,7 @@ Most endpoints require JWT authentication. To authenticate:
         },
       },
     },
-    "/login": {
+    "/api/login": {
       post: {
         tags: ["Authentication"],
         summary: "User login",
@@ -373,7 +323,7 @@ Most endpoints require JWT authentication. To authenticate:
         },
       },
     },
-    "/logout": {
+    "/api/logout": {
       post: {
         tags: ["Authentication"],
         summary: "User logout",
