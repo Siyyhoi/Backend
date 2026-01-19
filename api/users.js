@@ -44,147 +44,80 @@ function requireFields(obj, keys) {
 // ROUTES
 // --------------------------------------------------
 
-/**
- * @openapi
- * /users:
- *   get:
- *     tags:
- *       - Users
- *     summary: Get all users
- *     description: Retrieve a paginated list of all users
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 100
- *         description: Number of users per page
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           minimum: 1
- *         description: Page number
- *     responses:
- *       200:
- *         description: List of users
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: ok
- *                 count:
- *                   type: integer
- *                 data:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/User'
- *                 total:
- *                   type: integer
- *                 page:
- *                   type: integer
- *                 limit:
- *                   type: integer
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Database error
- */
+// GET ALL USERS
 router.get("/", verifyToken, async (req, res) => {
   try {
-    const limitParam = Number.parseInt(req.query.limit ?? "", 10);
+    const limitParam = parseInt(req.query.limit ?? "", 10);
     const limit =
       Number.isNaN(limitParam) || limitParam <= 0
         ? null
         : Math.min(limitParam, MAX_PAGE_SIZE);
 
-    const pageParam = Number.parseInt(req.query.page ?? "", 10);
+    const pageParam = parseInt(req.query.page ?? "", 10);
     const page = Number.isNaN(pageParam) || pageParam <= 0 ? 1 : pageParam;
-    const offset = limit !== null ? Math.max(0, (page - 1) * limit) : 0;
+    const offset = limit ? (page - 1) * limit : 0;
 
-    let sql =
-      "SELECT id, firstname, fullname, lastname, username, status, created_at, updated_at FROM tbl_users";
+    let sql = `
+      SELECT 
+        id,
+        firstname,
+        fullname,
+        lastname,
+        username,
+        address,
+        status,
+        created_at,
+        updated_at
+      FROM tbl_users
+    `;
+
     const params = [];
-    if (limit !== null) {
+    if (limit) {
       sql += " LIMIT ? OFFSET ?";
       params.push(limit, offset);
     }
 
-    const dataPromise = runQuery(sql, params);
-    const countPromise =
-      limit !== null
-        ? runQuery("SELECT COUNT(*) AS total FROM tbl_users")
-        : null;
+    const data = await runQuery(sql, params);
 
-    const rows = await dataPromise;
-    const responseBody = {
+    const response = {
       status: "ok",
-      count: rows.length,
-      data: rows,
+      count: data.length,
+      data,
     };
 
-    if (countPromise) {
-      const total = await countPromise;
-      responseBody.total = total[0].total;
-      responseBody.page = page;
-      responseBody.limit = limit;
+    if (limit) {
+      const total = await runQuery("SELECT COUNT(*) AS total FROM tbl_users");
+      response.total = total[0].total;
+      response.page = page;
+      response.limit = limit;
     }
 
-    res.json(responseBody);
+    res.json(response);
   } catch (err) {
     return sendDbError(res, err);
   }
 });
 
-/**
- * @openapi
- * /users/{id}:
- *   get:
- *     tags:
- *       - Users
- *     summary: Get user by ID
- *     description: Retrieve a single user by their ID
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: integer
- *         description: User ID
- *     responses:
- *       200:
- *         description: User found
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: ok
- *                 data:
- *                   $ref: '#/components/schemas/User'
- *       401:
- *         description: Unauthorized
- *       404:
- *         description: User not found
- *       500:
- *         description: Database error
- */
+// GET USER BY ID
 router.get("/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
 
     const rows = await runQuery(
-      "SELECT id, firstname, fullname, lastname, username, status, created_at, updated_at FROM tbl_users WHERE id = ?",
+      `
+      SELECT 
+        id,
+        firstname,
+        fullname,
+        lastname,
+        username,
+        address,
+        status,
+        created_at,
+        updated_at
+      FROM tbl_users
+      WHERE id = ?
+      `,
       [id]
     );
 
@@ -203,49 +136,7 @@ router.get("/:id", verifyToken, async (req, res) => {
   }
 });
 
-/**
- * @openapi
- * /users:
- *   post:
- *     tags:
- *       - Users
- *     summary: Create a new user
- *     description: Register a new user account
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/UserInput'
- *     responses:
- *       201:
- *         description: User created successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: ok
- *                 id:
- *                   type: integer
- *                 firstname:
- *                   type: string
- *                 fullname:
- *                   type: string
- *                 lastname:
- *                   type: string
- *                 username:
- *                   type: string
- *                 userStatus:
- *                   type: string
- *                   description: User account status (e.g., active, inactive)
- *       400:
- *         description: Bad request - missing required fields
- *       500:
- *         description: Database error
- */
+// CREATE USER (REGISTER)
 router.post("/", async (req, res) => {
   try {
     const {
@@ -254,6 +145,7 @@ router.post("/", async (req, res) => {
       lastname,
       username,
       password,
+      address,
       status = "active",
     } = req.body;
 
@@ -263,7 +155,9 @@ router.post("/", async (req, res) => {
       "lastname",
       "username",
       "password",
+      "address",
     ]);
+
     if (missing) {
       return res.status(400).json({
         status: "bad_request",
@@ -271,14 +165,23 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
     const [result] = await db.execute(
       `
-        INSERT INTO tbl_users (firstname, fullname, lastname, username, password, status)
-        VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO tbl_users
+      (firstname, fullname, lastname, username, password, address, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
-      [firstname, fullname, lastname, username, hashed, status]
+      [
+        firstname,
+        fullname,
+        lastname,
+        username,
+        hashedPassword,
+        address,
+        status,
+      ]
     );
 
     res.status(201).json({
@@ -288,6 +191,7 @@ router.post("/", async (req, res) => {
       fullname,
       lastname,
       username,
+      address,
       status,
     });
   } catch (err) {
@@ -295,72 +199,20 @@ router.post("/", async (req, res) => {
   }
 });
 
-/**
- * @openapi
- * /users/{id}:
- *   put:
- *     tags:
- *       - Users
- *     summary: Update user
- *     description: Update an existing user's information
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: integer
- *         description: User ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               firstname:
- *                 type: string
- *               fullname:
- *                 type: string
- *               lastname:
- *                 type: string
- *               username:
- *                 type: string
- *               password:
- *                 type: string
- *               status:
- *                 type: string
- *     responses:
- *       200:
- *         description: User updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: ok
- *                 message:
- *                   type: string
- *                   example: User updated successfully
- *       400:
- *         description: No fields to update
- *       401:
- *         description: Unauthorized
- *       404:
- *         description: User not found
- *       500:
- *         description: Database error
- */
+// UPDATE USER
 router.put("/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { firstname, fullname, lastname, username, password, status } =
-      req.body;
+    const {
+      firstname,
+      fullname,
+      lastname,
+      username,
+      password,
+      address,
+      status,
+    } = req.body;
 
-    // dynamic fields
     const fields = [];
     const params = [];
 
@@ -379,6 +231,10 @@ router.put("/:id", verifyToken, async (req, res) => {
     if (username !== undefined) {
       fields.push("username = ?");
       params.push(username);
+    }
+    if (address !== undefined) {
+      fields.push("address = ?");
+      params.push(address);
     }
     if (status !== undefined) {
       fields.push("status = ?");
@@ -419,51 +275,15 @@ router.put("/:id", verifyToken, async (req, res) => {
   }
 });
 
-/**
- * @openapi
- * /users/{id}:
- *   delete:
- *     tags:
- *       - Users
- *     summary: Delete user
- *     description: Delete a user by their ID
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: integer
- *         description: User ID
- *     responses:
- *       200:
- *         description: User deleted successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: ok
- *                 message:
- *                   type: string
- *                   example: User deleted successfully
- *       401:
- *         description: Unauthorized
- *       404:
- *         description: User not found
- *       500:
- *         description: Database error
- */
+// DELETE USER
 router.delete("/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const [result] = await db.execute("DELETE FROM tbl_users WHERE id = ?", [
-      id,
-    ]);
+    const [result] = await db.execute(
+      "DELETE FROM tbl_users WHERE id = ?",
+      [id]
+    );
 
     if (result.affectedRows === 0) {
       return res
