@@ -46,11 +46,11 @@ Most endpoints require JWT authentication. To authenticate:
   },
   servers: [
     {
-      url: "http://localhost:3000",
+      url: "https://backend-psi-tan-81.vercel.app/",
       description: "🖥️ Development Server",
     },
     {
-      url: "",
+      url: "https://backend-psi-tan-81.vercel.app/",
       description: "🌐 Production Server",
     },
   ],
